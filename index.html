@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ChronosEmulator</title>
+<style>
+  body { background:radial-gradient(circle at top,#24262e,#0f1014); color:#eee; font:12px monospace; margin:0; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+  .top { width:100%; background:#111; padding:7px 12px; display:flex; justify-content:space-between; border-bottom:1px solid #333; box-sizing:border-box; flex-wrap:wrap; gap:6px; }
+  .crt { margin-top:14px; background:linear-gradient(180deg,#ece6d8 0%,#d6cfc0 85%,#b5ae9e 100%); border-top:4px solid #faf6ed; border-left:4px solid #e3ddd0; border-right:4px solid #a8a191; border-bottom:8px solid #8a8273; border-radius:16px; padding:16px 18px 10px; color:#333; box-shadow:0 20px 35px rgba(0,0,0,.75); }
+  .bezel { background:#222; padding:10px; border-top:5px solid #8c8576; border-left:5px solid #9e9686; border-right:5px solid #f0eadc; border-bottom:5px solid #faf6ed; border-radius:12px; box-shadow:inset 0 0 20px #000; position:relative; }
+  #screen_container { width:540px; height:338px; background:#000; position:relative; overflow:hidden; border-radius:6px; cursor:crosshair; }
+  #screen_container canvas { width:100%!important; height:100%!important; display:block; }
+  .scan::after { content:""; position:absolute; inset:0; background:radial-gradient(circle,transparent 60%,rgba(0,0,0,.4) 100%),repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px); pointer-events:none; }
+  .bar { display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-weight:bold; font-size:11px; text-shadow:0 1px 0 #fff; }
+  .neck { width:220px; height:14px; background:linear-gradient(90deg,#7a7365,#dfd9cc 30%,#ebe5d8 50%,#b5ae9e 80%,#7a7365); box-shadow:inset 0 4px 6px rgba(0,0,0,.45); }
+  .cpu { width:600px; background:linear-gradient(180deg,#ebe5d8 0%,#d4cdbd 85%,#b0a896 100%); border-top:4px solid #faf6ed; border-left:4px solid #e3ddd0; border-right:4px solid #a8a191; border-bottom:8px solid #827b6d; border-radius:6px; padding:12px 14px; display:flex; gap:12px; color:#222; box-shadow:0 24px 40px rgba(0,0,0,.85); }
+  .vents { width:140px; background:repeating-linear-gradient(90deg,#302d28 0 3px,#c7c0b0 3px 4px,transparent 4px 8px); border-right:2px solid #9e9686; border-top:2px solid #9e9686; border-bottom:2px solid #f5f0e6; }
+  .bays { flex:1; display:flex; flex-direction:column; gap:6px; }
+  .slot { position:relative; background:linear-gradient(180deg,#c7c0b0,#b8b1a1); border-top:2px solid #857e70; border-left:2px solid #968e7e; border-right:2px solid #f0eadc; border-bottom:2px solid #faf6ed; padding:5px 8px; display:flex; align-items:center; gap:7px; font-size:10px; font-weight:bold; cursor:pointer; }
+  .slit { flex:1; height:5px; background:#181818; border-bottom:1px solid #eee; position:relative; }
+  .tray { flex:1; height:9px; background:#aba494; border:1px solid #666; position:relative; }
+  .floppy-media { position:absolute; left:18%; right:18%; top:-2px; height:12px; background:linear-gradient(180deg,#1e4fa3,#13336e); border:1px solid #0b1f47; border-radius:0 0 3px 3px; box-shadow:0 3px 5px rgba(0,0,0,.6); pointer-events:none; }
+  .floppy-media::after { content:""; position:absolute; left:28%; width:44%; top:0; height:6px; background:#ccc; }
+  .cd-media { position:absolute; left:15%; right:15%; top:2px; height:13px; background:conic-gradient(from 45deg,#fff,#9be7ff,#ffd6f6,#d4ffaa,#fff); border:1px solid #888; border-radius:0 0 50% 50%; box-shadow:0 3px 6px rgba(0,0,0,.6); pointer-events:none; }
+  .led { width:7px; height:4px; background:#333; } .led.on { background:#39ff14; box-shadow:0 0 6px #39ff14; }
+  .btns { display:flex; flex-direction:column; justify-content:space-between; border-left:2px solid #9e9686; padding-left:10px; }
+  button, select { font:11px monospace; cursor:pointer; } .ok { color:#4cff4c; font-weight:bold; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div><b>Firmware:</b> <label id="lw">1.wasm:<input type="file" id="w" accept=".wasm"></label> <label id="lb">2.bios:<input type="file" id="b" accept=".bin"></label> <label id="lv">3.vga:<input type="file" id="v" accept=".bin"></label></div>
+  <div><b>HDD:</b><input type="file" id="hddIn" accept=".img,.vhd,.bin" onchange="if(this.files.item(0)){hddFile=this.files.item(0);hdd.value='0';}">
+  <b>Blank HDD:</b> <select id="hdd" onchange="if(this.value!='0'){hddFile=null;hddIn.value='';}"><option value="0">None</option><option value="64">64MB</option><option value="256">256MB</option><option value="512">512MB</option><option value="1024">1GB</option><option value="2048">2GB</option></select>
+  <b>RAM:</b> <select id="ram"><option value="4">4MB</option><option value="16">16MB</option><option value="32">32MB</option><option value="128" selected>128MB</option><option value="512">512MB</option><option value="1024">1GB</option><option value="2048">2GB</option></select> <button onclick="boot()">Run</button></div>
+</div>
+<div id="st" style="font-size:11px;color:#aaa;margin-top:4px;">Checking IndexedDB cache...</div>
+<div class="crt"><div class="bezel"><div id="screen_container" class="scan" onclick="emu&&emu.lock_mouse()"><div></div><canvas style="display:none"></canvas></div></div>
+  <div class="bar"><span>Chronos PC Monitor</span><div><button onclick="emu&&emu.lock_mouse()">Lock Mouse</button> <button id="crtBtn" onclick="crtBtn.textContent=screen_container.classList.toggle('scan')?'CRT: ON':'CRT: OFF'">CRT: ON</button> <button onclick="emu?emu.screen_go_fullscreen():screen_container.requestFullscreen()">Full</button></div></div>
+</div>
+<div class="neck"></div>
+<div class="cpu"><div class="vents"></div>
+  <div class="bays">
+    <div class="slot" onclick="fdaIn.click()"><span id="lblA" style="width:105px;overflow:hidden;white-space:nowrap">A: [Empty]</span><div class="slit" id="slitA"></div><div class="led" id="ledA"></div><button onclick="event.stopPropagation();eject('fda')">⏏</button><input type="file" id="fdaIn" hidden onchange="insert('fda',this.files.item(0))"></div>
+    <div class="slot" onclick="fdbIn.click()"><span id="lblB" style="width:105px;overflow:hidden;white-space:nowrap">B: [Empty]</span><div class="slit" id="slitB"></div><div class="led" id="ledB"></div><button onclick="event.stopPropagation();eject('fdb')">⏏</button><input type="file" id="fdbIn" hidden onchange="insert('fdb',this.files.item(0))"></div>
+    <div class="slot" onclick="cdIn.click()"><span id="lblC" style="width:105px;overflow:hidden;white-space:nowrap">CD/DVD: [Empty]</span><div class="tray" id="trayC"></div><div class="led" id="ledC"></div><button onclick="event.stopPropagation();eject('cd')">⏏</button><input type="file" id="cdIn" hidden onchange="insert('cd',this.files.item(0))"></div>
+  </div>
+  <div class="btns"><button onclick="if(!hddBuf)return alert('No HDD');let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([hddBuf]));a.download='chronos_hdd.img';a.click();">Save HDD</button><button onclick="emu&&emu.restart()">RESET</button><button onclick="emu&&emu.is_running()?emu.stop():boot()">POWER</button></div>
+</div>
+<script src="libv86.js"></script>
+<script>
+let emu,fw={w:null,b:null,v:null},media={fda:null,fdb:null,cd:null},hddFile=null,hddBuf=null;
+const openDB=()=>new Promise((res,rej)=>{let r=indexedDB.open("ChronosFW_DB",1);r.onupgradeneeded=()=>r.result.createObjectStore("fw");r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+(async()=>{try{let db=await openDB(),tx=db.transactio<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ChronosEmulator</title>
+<style>
+  body { background:radial-gradient(circle at top,#24262e,#0f1014); color:#eee; font:12px monospace; margin:0; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+  .top { width:100%; background:#111; padding:7px 12px; display:flex; justify-content:space-between; border-bottom:1px solid #333; box-sizing:border-box; flex-wrap:wrap; gap:6px; }
+  .crt { margin-top:14px; background:linear-gradient(180deg,#ece6d8 0%,#d6cfc0 85%,#b5ae9e 100%); border-top:4px solid #faf6ed; border-left:4px solid #e3ddd0; border-right:4px solid #a8a191; border-bottom:8px solid #8a8273; border-radius:16px; padding:16px 18px 10px; color:#333; box-shadow:0 20px 35px rgba(0,0,0,.75); }
+  .bezel { background:#222; padding:10px; border-top:5px solid #8c8576; border-left:5px solid #9e9686; border-right:5px solid #f0eadc; border-bottom:5px solid #faf6ed; border-radius:12px; box-shadow:inset 0 0 20px #000; position:relative; }
+  #screen_container { width:540px; height:338px; background:#000; position:relative; overflow:hidden; border-radius:6px; cursor:crosshair; }
+  #screen_container canvas { width:100%!important; height:100%!important; display:block; }
+  .scan::after { content:""; position:absolute; inset:0; background:radial-gradient(circle,transparent 60%,rgba(0,0,0,.4) 100%),repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px); pointer-events:none; }
+  .bar { display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-weight:bold; font-size:11px; text-shadow:0 1px 0 #fff; }
+  .neck { width:220px; height:14px; background:linear-gradient(90deg,#7a7365,#dfd9cc 30%,#ebe5d8 50%,#b5ae9e 80%,#7a7365); box-shadow:inset 0 4px 6px rgba(0,0,0,.45); }
+  .cpu { width:600px; background:linear-gradient(180deg,#ebe5d8 0%,#d4cdbd 85%,#b0a896 100%); border-top:4px solid #faf6ed; border-left:4px solid #e3ddd0; border-right:4px solid #a8a191; border-bottom:8px solid #827b6d; border-radius:6px; padding:12px 14px; display:flex; gap:12px; color:#222; box-shadow:0 24px 40px rgba(0,0,0,.85); }
+  .vents { width:140px; background:repeating-linear-gradient(90deg,#302d28 0 3px,#c7c0b0 3px 4px,transparent 4px 8px); border-right:2px solid #9e9686; border-top:2px solid #9e9686; border-bottom:2px solid #f5f0e6; }
+  .bays { flex:1; display:flex; flex-direction:column; gap:6px; }
+  .slot { position:relative; background:linear-gradient(180deg,#c7c0b0,#b8b1a1); border-top:2px solid #857e70; border-left:2px solid #968e7e; border-right:2px solid #f0eadc; border-bottom:2px solid #faf6ed; padding:5px 8px; display:flex; align-items:center; gap:7px; font-size:10px; font-weight:bold; cursor:pointer; }
+  .slit { flex:1; height:5px; background:#181818; border-bottom:1px solid #eee; position:relative; }
+  .tray { flex:1; height:9px; background:#aba494; border:1px solid #666; position:relative; }
+  .floppy-media { position:absolute; left:18%; right:18%; top:-2px; height:12px; background:linear-gradient(180deg,#1e4fa3,#13336e); border:1px solid #0b1f47; border-radius:0 0 3px 3px; box-shadow:0 3px 5px rgba(0,0,0,.6); pointer-events:none; }
+  .floppy-media::after { content:""; position:absolute; left:28%; width:44%; top:0; height:6px; background:#ccc; }
+  .cd-media { position:absolute; left:15%; right:15%; top:2px; height:13px; background:conic-gradient(from 45deg,#fff,#9be7ff,#ffd6f6,#d4ffaa,#fff); border:1px solid #888; border-radius:0 0 50% 50%; box-shadow:0 3px 6px rgba(0,0,0,.6); pointer-events:none; }
+  .led { width:7px; height:4px; background:#333; } .led.on { background:#39ff14; box-shadow:0 0 6px #39ff14; }
+  .btns { display:flex; flex-direction:column; justify-content:space-between; border-left:2px solid #9e9686; padding-left:10px; }
+  button, select { font:11px monospace; cursor:pointer; } .ok { color:#4cff4c; font-weight:bold; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div><b>Firmware:</b> <label id="lw">1.wasm:<input type="file" id="w" accept=".wasm"></label> <label id="lb">2.bios:<input type="file" id="b" accept=".bin"></label> <label id="lv">3.vga:<input type="file" id="v" accept=".bin"></label></div>
+  <div><b>HDD:</b><input type="file" id="hddIn" accept=".img,.vhd,.bin" onchange="if(this.files.item(0)){hddFile=this.files.item(0);hdd.value='0';}">
+  <b>Blank HDD:</b> <select id="hdd" onchange="if(this.value!='0'){hddFile=null;hddIn.value='';}"><option value="0">None</option><option value="64">64MB</option><option value="256">256MB</option><option value="512">512MB</option><option value="1024">1GB</option><option value="2048">2GB</option></select>
+  <b>RAM:</b> <select id="ram"><option value="4">4MB</option><option value="16">16MB</option><option value="32">32MB</option><option value="128" selected>128MB</option><option value="512">512MB</option><option value="1024">1GB</option><option value="2048">2GB</option></select> <button onclick="boot()">Run</button></div>
+</div>
+<div id="st" style="font-size:11px;color:#aaa;margin-top:4px;">Checking IndexedDB cache...</div>
+<div class="crt"><div class="bezel"><div id="screen_container" class="scan" onclick="emu&&emu.lock_mouse()"><div></div><canvas style="display:none"></canvas></div></div>
+  <div class="bar"><span>Chronos PC Monitor</span><div><button onclick="emu&&emu.lock_mouse()">Lock Mouse</button> <button id="crtBtn" onclick="crtBtn.textContent=screen_container.classList.toggle('scan')?'CRT: ON':'CRT: OFF'">CRT: ON</button> <button onclick="emu?emu.screen_go_fullscreen():screen_container.requestFullscreen()">Full</button></div></div>
+</div>
+<div class="neck"></div>
+<div class="cpu"><div class="vents"></div>
+  <div class="bays">
+    <div class="slot" onclick="fdaIn.click()"><span id="lblA" style="width:105px;overflow:hidden;white-space:nowrap">A: [Empty]</span><div class="slit" id="slitA"></div><div class="led" id="ledA"></div><button onclick="event.stopPropagation();eject('fda')">⏏</button><input type="file" id="fdaIn" hidden onchange="insert('fda',this.files.item(0))"></div>
+    <div class="slot" onclick="fdbIn.click()"><span id="lblB" style="width:105px;overflow:hidden;white-space:nowrap">B: [Empty]</span><div class="slit" id="slitB"></div><div class="led" id="ledB"></div><button onclick="event.stopPropagation();eject('fdb')">⏏</button><input type="file" id="fdbIn" hidden onchange="insert('fdb',this.files.item(0))"></div>
+    <div class="slot" onclick="cdIn.click()"><span id="lblC" style="width:105px;overflow:hidden;white-space:nowrap">CD/DVD: [Empty]</span><div class="tray" id="trayC"></div><div class="led" id="ledC"></div><button onclick="event.stopPropagation();eject('cd')">⏏</button><input type="file" id="cdIn" hidden onchange="insert('cd',this.files.item(0))"></div>
+  </div>
+  <div class="btns"><button onclick="if(!hddBuf)return alert('No HDD');let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([hddBuf]));a.download='chronos_hdd.img';a.click();">Save HDD</button><button onclick="emu&&emu.restart()">RESET</button><button onclick="emu&&emu.is_running()?emu.stop():boot()">POWER</button></div>
+</div>
+<script src="libv86.js"></script>
+<script>
+let emu,fw={w:null,b:null,v:null},media={fda:null,fdb:null,cd:null},hddFile=null,hddBuf=null;
+const openDB=()=>new Promise((res,rej)=>{let r=indexedDB.open("ChronosFW_DB",1);r.onupgradeneeded=()=>r.result.createObjectStore("fw");r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+(async()=>{try{let db=await openDB(),tx=db.transaction("fw","readonly").objectStore("fw");for(let k of["w","b","v"]){let val=await new Promise(r=>{let g=tx.get(k);g.onsuccess=()=>r(g.result);g.onerror=()=>r(null)});if(val){fw[k]=val;document.getElementById("l"+k).classList.add("ok")}}st.textContent=(fw.w&&fw.b&&fw.v)?"All firmware restored from IndexedDB! Click Run.":"Upload firmware once (saves to IndexedDB)."}catch(e){st.textContent="IndexedDB unavailable; upload firmware."}})();
+["w","b","v"].forEach(k=>document.getElementById(k).onchange=async e=>{let f=e.target.files.item(0);if(!f)return;fw[k]=await f.arrayBuffer();document.getElementById("l"+k).classList.add("ok");try{let db=await openDB();await new Promise((res,rej)=>{let tx=db.transaction("fw","readwrite");tx.objectStore("fw").put(fw[k],k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});st.textContent="Firmware saved to IndexedDB!"}catch(err){}});
+async function insert(t,f){
+  if(!f)return;
+  if(t==="fda"){let buf=await f.arrayBuffer();media.fda=buf;lblA.textContent="A: "+f.name;ledA.classList.add("on");slitA.innerHTML='<div class="floppy-media"></div>';emu&&emu.set_fda({buffer:buf})}
+  if(t==="fdb"){let buf=await f.arrayBuffer();media.fdb=buf;lblB.textContent="B: "+f.name;ledB.classList.add("on");slitB.innerHTML='<div class="floppy-media"></div>';emu&&emu.set_fdb({buffer:buf})}
+  if(t==="cd"){media.cd=f;lblC.textContent="CD/DVD: "+f.name;ledC.classList.add("on");trayC.innerHTML='<div class="cd-media"></div>';emu&&emu.set_cdrom({buffer:f,async:true})}
+}
+function eject(t){
+  media[t]=null;
+  if(t==="fda"){fdaIn.value="";lblA.textContent="A: [Empty]";ledA.classList.remove("on");slitA.innerHTML="";emu&&emu.eject_fda()}
+  if(t==="fdb"){fdbIn.value="";lblB.textContent="B: [Empty]";ledB.classList.remove("on");slitB.innerHTML="";emu&&emu.eject_fdb()}
+  if(t==="cd"){cdIn.value="";lblC.textContent="CD/DVD: [Empty]";ledC.classList.remove("on");trayC.innerHTML="";emu&&emu.eject_cdrom()}
+}
+async function boot(){
+  if(!fw.w||!fw.b||!fw.v)return alert("Upload firmware first.");
+  if(emu)await emu.destroy();
+  let mb=+hdd.value;
+  hddBuf=hddFile?await hddFile.arrayBuffer():(mb?new ArrayBuffer(Math.min(mb*1048576,2147483136)):null);
+  let cfg={
+    wasm_fn:async i=>(await WebAssembly.instantiate(fw.w.slice(0),i)).instance.exports,
+    memory_size:+ram.value*1048576,
+    vga_memory_size:8388608,
+    screen_container:screen_container,
+    screen:{use_graphical_text:true},
+    bios:{buffer:fw.b.slice(0)},
+    vga_bios:{buffer:fw.v.slice(0)},
+    sb16:true,
+    network_relay_url:"wss://relay.widgetry.org/",
+    bootmenu:true,
+    autostart:true
+  };
+  if(media.fda)cfg.fda={buffer:media.fda};
+  if(media.fdb)cfg.fdb={buffer:media.fdb};
+  if(media.cd)cfg.cdrom={buffer:media.cd,async:true};
+  if(hddBuf)cfg.hda={buffer:hddBuf,async:hddBuf.byteLength>=536870912};
+  emu = new V86(cfg);
+  st.textContent="Running with SB16 & Network Relay.";
+}
+</script>
+</body>
+</html>
